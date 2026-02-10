@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Hostels Information System</title>
+
+<!-- ArcGIS JS API -->
+<link rel="stylesheet" href="https://js.arcgis.com/4.29/esri/themes/light/main.css">
+<script src="https://js.arcgis.com/4.29/"></script>
+
+<!-- Bootstrap -->
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+
+<style>
+body, html { margin:0; height:100%; font-family:"Segoe UI", Arial, sans-serif; background:#f5f7fa; }
+h6 { font-weight:600; }
+
+.header {
+    height: 60px;
+    background: #0b5ed7;
+    color: #fff;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 25px;
+    font-weight: 700;
+    box-shadow: 0 3px 6px rgba(0,0,0,0.1);
+}
+
+.main { display:flex; height:calc(100vh - 60px); overflow:hidden; transition: all 0.3s; }
+
+.sidebar {
+    width:360px; background:#fff; border-right:1px solid #ddd;
+    padding:25px; overflow-y:auto;
+    box-shadow:2px 0 10px rgba(0,0,0,0.05); transition: all 0.3s;
+}
+.sidebar.collapsed { width:0; padding:0; overflow:hidden; }
+
+.sidebar h6.section-title {
+    border-bottom:2px solid #0b5ed7;
+    padding-bottom:5px; margin-bottom:15px;
+    color:#0b5ed7; text-transform:uppercase; font-size:14px;
+}
+
+#viewDiv { flex:1; position:relative; transition: all 0.3s; }
+
+.floating-panel {
+    position:absolute; background:#fff;
+    border-radius:10px; box-shadow:0 4px 15px rgba(0,0,0,0.2);
+    padding:15px; z-index:99; transition: transform 0.2s;
+}
+.floating-panel:hover { transform:translateY(-3px); }
+
+#tocDiv { top:20px; right:20px; width:270px; }
+#legendDiv { top:320px; right:20px; width:270px; }
+#opacityPanel { display:none; bottom:80px; right:20px; position:absolute; background:#fff;
+    width:270px; padding:15px; border-radius:10px; box-shadow:0 4px 15px rgba(0,0,0,0.2); z-index:99;
+}
+#opacityPanel h6 { font-size:14px; margin-bottom:10px; }
+#opacityPanel input[type=range] { width:100%; }
+
+/* Floating Map Search */
+#mapSearchBox { top:20px; left:20px; width:300px; }
+#mapSearchBox input { width:100%; }
+#searchResults div { padding:5px 10px; cursor:pointer; border-bottom:1px solid #ddd; }
+#searchResults div:hover { background:#0b5ed7; color:#fff; }
+
+select.form-select, input.form-control, input[type=range] {
+    border-radius:8px; border:1px solid #ced4da; transition:border-color 0.2s;
+}
+select.form-select:focus, input.form-control:focus { border-color:#0b5ed7; box-shadow:none; }
+
+.card { border-radius:12px; box-shadow:0 4px 15px rgba(0,0,0,0.1); }
+.card-body { font-size:14px; color:#555; }
+.card-title { font-size:15px; color:#0b5ed7; font-weight:600; margin-bottom:8px; }
+
+#sidebarToggle {
+    position:absolute; top:70px; left:365px; z-index:1000;
+    background:#0b5ed7; color:#fff; border:none; border-radius:50%;
+    width:35px; height:35px; cursor:pointer; display:flex;
+    align-items:center; justify-content:center; font-size:18px; transition:all 0.3s;
+}
+#sidebarToggle.collapsed { left:5px; }
+</style>
+</head>
+
+<body>
+
+<div class="header"> Hostels Information System</div>
+
+<div class="main">
+
+<!-- Sidebar -->
+<div class="sidebar" id="sidebar">
+    <h6 class="section-title">Administrative Filters</h6>
+    <div class="mb-3">
+        <label class="form-label">District</label>
+        <select id="districtDD" class="form-select">
+            <option value="">Select District</option>
+        </select>
+    </div>
+    <div class="mb-3">
+        <label class="form-label">Mandal</label>
+        <select id="mandalDD" class="form-select">
+            <option value="">Select Mandal</option>
+        </select>
+    </div>
+
+    <hr>
+
+    <h6 class="section-title">Hostel Category</h6>
+    <div class="form-check">
+        <input class="form-check-input" type="radio" name="hostelType" id="allHostels" checked>
+        <label class="form-check-label">All Hostels</label>
+    </div>
+    <div class="form-check">
+        <input class="form-check-input" type="radio" name="hostelType" id="preHostels">
+        <label class="form-check-label">Pre-Metric Hostels</label>
+    </div>
+    <div class="form-check mb-3">
+        <input class="form-check-input" type="radio" name="hostelType" id="postHostels">
+        <label class="form-check-label">Post-Metric Hostels</label>
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label">Select Hostel</label>
+        <select id="hostelDD" class="form-select">
+            <option value="">-- Select Hostel --</option>
+        </select>
+    </div>
+
+    <div class="card mt-3">
+        <div class="card-body">
+            <h6 class="card-title">Hostel Info</h6>
+            <div id="infoText">Select a hostel to view details</div>
+        </div>
+    </div>
+</div>
+
+<button id="sidebarToggle">⮜</button>
+
+<!-- Map Container -->
+<div id="viewDiv">
+
+    <!-- Layer List & Legend -->
+    <div id="tocDiv" class="floating-panel"><b>Layers</b><hr class="my-2"></div>
+    <div id="legendDiv" class="floating-panel"><b>Legend</b><hr class="my-2"></div>
+    <div id="opacityPanel">
+        <h6 class="fw-bold">Layer Opacity</h6>
+        <input type="range" id="opacitySlider" min="0" max="1" step="0.1" value="1">
+    </div>
+
+    <!-- Floating Map Search -->
+    <div id="mapSearchBox" class="floating-panel">
+        <label class="form-label fw-bold">Search Hostel</label>
+        <input type="text" id="mapHostelSearch" class="form-control" placeholder="Type hostel name...">
+        <div id="searchResults"></div>
+    </div>
+</div>
+
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", function(){
+
+const sidebarToggle = document.getElementById("sidebarToggle");
+const sidebar = document.getElementById("sidebar");
+sidebarToggle.onclick = function(){
+    sidebar.classList.toggle("collapsed");
+    sidebarToggle.classList.toggle("collapsed");
+    sidebarToggle.innerHTML = sidebar.classList.contains("collapsed") ? "⮞" : "⮜";
+};
+
+require([
+"esri/Map","esri/views/MapView",
+"esri/layers/MapImageLayer","esri/layers/FeatureLayer",
+"esri/layers/GraphicsLayer","esri/Graphic",
+"esri/widgets/LayerList","esri/widgets/Legend"
+], function(Map, MapView, MapImageLayer, FeatureLayer, GraphicsLayer, Graphic, LayerList, Legend){
+
+const map = new Map({ basemap:"satellite" });
+const view = new MapView({ container:"viewDiv", map, center:[79.2,18.1], zoom:7 });
+
+// Layers
+const hostelsMap = new MapImageLayer({ url:"https://www.tgrac.telangana.gov.in/arcgis/rest/services/Hostels/Hostels/MapServer", title:"Hostels" });
+map.add(hostelsMap);
+
+const preHostelsFL = new FeatureLayer({ url:"https://www.tgrac.telangana.gov.in/arcgis/rest/services/Hostels/Hostels/MapServer/0", outFields:["*"] });
+const postHostelsFL = new FeatureLayer({ url:"https://www.tgrac.telangana.gov.in/arcgis/rest/services/Hostels/Hostels/MapServer/1", outFields:["*"] });
+map.addMany([preHostelsFL, postHostelsFL]);
+
+const districtLayer = new FeatureLayer({ url:"https://www.tgrac.telangana.gov.in/arcgis/rest/services/Hostels/Hostels/MapServer/2", visible:false });
+const mandalLayer = new FeatureLayer({ url:"https://www.tgrac.telangana.gov.in/arcgis/rest/services/Hostels/Hostels/MapServer/3", visible:false });
+map.addMany([districtLayer, mandalLayer]);
+
+const highlightLayer = new GraphicsLayer(); map.add(highlightLayer);
+const highlightSymbol = { type:"simple-marker", color:[255,255,0,0.9], size:16, outline:{ color:[255,0,0], width:2 } };
+
+// Widgets
+new LayerList({ view, container:"tocDiv" });
+new Legend({ view, container:"legendDiv" });
+
+// DOM Elements
+const districtDD = document.getElementById("districtDD");
+const mandalDD = document.getElementById("mandalDD");
+const hostelDD = document.getElementById("hostelDD");
+const infoText = document.getElementById("infoText");
+const opacitySlider = document.getElementById("opacitySlider");
+
+// Populate Districts
+districtLayer.queryFeatures({ where:"1=1", outFields:["District"], returnDistinctValues:true })
+.then(res => res.features.map(f=>f.attributes.District).filter(Boolean).sort()
+    .forEach(d => districtDD.add(new Option(d,d))));
+
+// District & Mandal Filters
+districtDD.onchange = function(){
+    const district=this.value; 
+    mandalDD.innerHTML=`<option value="">Select Mandal</option>`;
+    if(!district){ districtLayer.visible=false; mandalLayer.visible=false; return; }
+    districtLayer.visible=true; mandalLayer.visible=false;
+    districtLayer.definitionExpression=`District='${district}'`;
+    districtLayer.queryFeatures({ where:`District='${district}'`, returnGeometry:true })
+        .then(res=>{ if(res.features.length) view.goTo(res.features[0].geometry.extent.expand(1.2)); });
+    mandalLayer.queryFeatures({ where:`District='${district}'`, outFields:["Mandal"], returnDistinctValues:true })
+        .then(res=>res.features.map(f=>f.attributes.Mandal).filter(Boolean).sort()
+        .forEach(m => mandalDD.add(new Option(m,m))));
+};
+
+mandalDD.onchange = function(){
+    const mandal=this.value; if(!mandal) return;
+    mandalLayer.visible=true;
+    mandalLayer.definitionExpression=`Mandal='${mandal}'`;
+    mandalLayer.queryFeatures({where:`Mandal='${mandal}'`, returnGeometry:true})
+        .then(res=>{ if(res.features.length) view.goTo(res.features[0].geometry.extent.expand(1.3)); });
+};
+
+// Load all hostels
+let allHostels=[];
+function loadAllHostels(){
+    Promise.all([
+        preHostelsFL.queryFeatures({where:"1=1", outFields:["Name_OF_THE__HOSTEL"], returnGeometry:false}),
+        postHostelsFL.queryFeatures({where:"1=1", outFields:["Name_OF_THE__HOSTEL"], returnGeometry:false})
+    ]).then(([res0,res1])=>{
+        allHostels=[...res0.features.map(f=>({name:f.attributes.Name_OF_THE__HOSTEL,type:"Pre-Metric"})),
+                    ...res1.features.map(f=>({name:f.attributes.Name_OF_THE__HOSTEL,type:"Post-Metric"}))].filter(h=>h.name);
+        updateDropdown();
+    });
+}
+function updateDropdown(filterType){
+    hostelDD.innerHTML=`<option value="">-- Select Hostel --</option>`;
+    allHostels.filter(h=>!filterType||h.type===filterType)
+        .sort((a,b)=>a.name.localeCompare(b.name))
+        .forEach(h=>hostelDD.add(new Option(`${h.name} (${h.type})`, h.name)));
+    infoText.innerHTML="Select a hostel to view details"; highlightLayer.removeAll();
+}
+document.getElementById("allHostels").onclick = ()=>updateDropdown();
+document.getElementById("preHostels").onclick = ()=>updateDropdown("Pre-Metric");
+document.getElementById("postHostels").onclick = ()=>updateDropdown("Post-Metric");
+loadAllHostels();
+
+// Dropdown selection
+hostelDD.onchange = function(){
+    const name=this.value; if(!name) return;
+    highlightHostel(name,true);
+};
+
+// Floating map search box
+const mapHostelSearch=document.getElementById("mapHostelSearch");
+const searchResults=document.getElementById("searchResults");
+
+function normalizeText(str){ return str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,""); }
+
+mapHostelSearch.addEventListener("input", function(){
+    const query=normalizeText(this.value.trim());
+    searchResults.innerHTML="";
+    if(!query) return;
+
+    const matches=allHostels.filter(h=>normalizeText(h.name).includes(query))
+        .sort((a,b)=>a.name.localeCompare(b.name));
+
+    matches.forEach(h=>{
+        const div=document.createElement("div"); div.textContent=`${h.name} (${h.type})`;
+        div.onclick=()=>{ highlightHostel(h.name,false); searchResults.innerHTML=""; mapHostelSearch.value=""; };
+        searchResults.appendChild(div);
+    });
+});
+
+// Highlight hostel function
+function highlightHostel(name,showInfoInSidebar){
+    highlightLayer.removeAll();
+    preHostelsFL.queryFeatures({ where:`Name_OF_THE__HOSTEL='${name.replace("'", "''")}'`, returnGeometry:true, outFields:["*"] })
+    .then(res=>{ if(res.features.length) showFeature(res.features[0],showInfoInSidebar);
+        else postHostelsFL.queryFeatures({ where:`Name_OF_THE__HOSTEL='${name.replace("'", "''")}'`, returnGeometry:true, outFields:["*"] })
+        .then(res2=>{ if(res2.features.length) showFeature(res2.features[0],showInfoInSidebar); });
+    });
+
+    function showFeature(feature,showInfo){
+        highlightLayer.add(new Graphic({geometry:feature.geometry, symbol:highlightSymbol}));
+        view.goTo({ target:feature.geometry, zoom:15 });
+        if(showInfo){
+            const attr=feature.attributes;
+            infoText.innerHTML = `
+            <table class="table table-sm table-borderless mb-0">
+                <tr><th>Name</th><td>${attr.Name_OF_THE__HOSTEL||'-'}</td></tr>
+                <tr><th>Latitude</th><td>${attr.LATITUDE||'-'}</td></tr>
+                <tr><th>Longitude</th><td>${attr.LONGITUDE||'-'}</td></tr>
+                <tr><th>Total Boarders</th><td>${attr.TOTAL_BOARDERS||0}</td></tr>
+                <tr><th>Total Colleges</th><td>${attr.TOTAL_COLLEGES||0}</td></tr>
+                <tr><th>Total Courses/Classes</th><td>${attr.TOTAL_COURSES_CLASSES||0}</td></tr>
+            </table>`;
+        } else {
+            view.popup.open({ title: feature.attributes.Name_OF_THE__HOSTEL,
+                location: feature.geometry,
+                content: `
+                <table class="table table-sm table-borderless mb-0">
+                    <tr><th>Type</th><td>${feature.layer.title||'-'}</td></tr>
+                    <tr><th>Total Boarders</th><td>${feature.attributes.TOTAL_BOARDERS||0}</td></tr>
+                    <tr><th>Total Colleges</th><td>${feature.attributes.TOTAL_COLLEGES||0}</td></tr>
+                    <tr><th>Total Courses/Classes</th><td>${feature.attributes.TOTAL_COURSES_CLASSES||0}</td></tr>
+                </table>` });
+        }
+    }
+}
+
+// Layer opacity
+opacitySlider.oninput=function(){
+    const val=parseFloat(this.value);
+    [preHostelsFL, postHostelsFL].forEach(l=>{ if(l.visible) l.opacity=val; });
+    hostelsMap.sublayers.forEach(sl=>{ if(sl.visible) sl.opacity=val; });
+};
+
+});
+});
+</script>
+
+</body>
+</html>
